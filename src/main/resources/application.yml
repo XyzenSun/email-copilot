@@ -1,0 +1,91 @@
+spring:
+  application:
+    name: email-copilot
+
+  # ── 为什么要排除这 7 个自动配置 ────────────────────────────────
+  # AI 连接配置（provider/端点/型号/窗口/超时/key）全部存数据库、在界面上热改
+  # （ARCHITECTURE.md §8.5），所以本项目自己持有一个可替换的 ChatModel 引用，
+  # 不使用 starter 装配的单例。
+  # 不排除的后果是启动直接失败：OpenAiAudioSpeechAutoConfiguration 等在缺 api-key 时抛
+  # "At least one credential source must be specified"——而本项目的 key 本来就不在配置文件里。
+  # 两个 starter 仍要留在 pom 里，因为要用它们带进来的 OpenAiApi / AnthropicApi builder。
+  autoconfigure:
+    exclude:
+      - org.springframework.ai.model.openai.autoconfigure.OpenAiChatAutoConfiguration
+      - org.springframework.ai.model.openai.autoconfigure.OpenAiEmbeddingAutoConfiguration
+      - org.springframework.ai.model.openai.autoconfigure.OpenAiImageAutoConfiguration
+      - org.springframework.ai.model.openai.autoconfigure.OpenAiAudioSpeechAutoConfiguration
+      - org.springframework.ai.model.openai.autoconfigure.OpenAiAudioTranscriptionAutoConfiguration
+      - org.springframework.ai.model.openai.autoconfigure.OpenAiModerationAutoConfiguration
+      - org.springframework.ai.model.anthropic.autoconfigure.AnthropicChatAutoConfiguration
+
+  datasource:
+    url: jdbc:postgresql://localhost:5432/email_agent
+    username: postgres
+    password: ${DB_PASSWORD:postgres}
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+
+  jackson:
+    # OpenAPI 的 additionalProperties:false 必须在运行时也生效；否则废弃字段会被静默忽略，
+    # 用户以为设置已经保存，实际却仍在使用旧值。
+    deserialization:
+      fail-on-unknown-properties: true
+
+  # ── 阶段 7：Exa MCP 只读搜索工具（Streamable HTTP）──
+  # research/exa-mcp-streamable-http-verified.md 已真实验证 endpoint/认证/allowlist。
+  # API key 由 McpClientCustomizer bean 在请求时从 ExternalAccountSecretStore 注入 x-api-key header，
+  # 不进 URL/工具参数/模型上下文/日志/响应。
+  # MCP 工具不自动注册到 ChatClient，由 ConversationalChatClientFactory 显式注入。
+  ai:
+    mcp:
+      client:
+        enabled: true
+        type: SYNC
+        request-timeout: 20s
+        streamable-http:
+          connections:
+            exa:
+              url: https://mcp.exa.ai
+              endpoint: /mcp?tools=web_search_exa,web_fetch_exa
+
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: true
+
+email-copilot:
+  security:
+    # 外部凭据（IMAP/SMTP 口令、AI API key）AES-GCM 加密用的主密钥。
+    # Base64 编码的 32 字节，由环境变量注入 —— 这里只写占位符，绝不写值。
+    #   export EMAIL_COPILOT_MASTER_KEY="$(openssl rand -base64 32)"
+    # 未配置时为空串：全新部署还没配任何账号时能正常启动，只是加密能力不可用。
+    # 但「库里已有密文却没有密钥」会直接启动失败（MasterKeySelfCheck）——
+    # 静默生成新密钥会让既有凭据永久解不开，而症状只表现为「所有邮箱突然连不上」。
+    master-key: ${EMAIL_COPILOT_MASTER_KEY:}
+
+  # 阶段12 手动重新处理的总开关。默认开；关闭后 POST /api/messages/{id}/reprocess
+  # 返回 404（像接口不存在），前端常显入口点按钮收 404 toast。用运行时检查而非
+  # @ConditionalOnProperty 禁用 bean，让 404 可控（design.md §11）。
+  reprocess:
+    enabled: true
+
+server:
+  port: 8080
+  servlet:
+    session:
+      # __Host- 前缀要求 Secure + Path=/ + 无 Domain，浏览器会强制这三条（ARCHITECTURE.md §7.1）。
+      # 代价：Secure cookie 在明文 HTTP 上不被保存，例外是 localhost。
+      # 因此从别的设备用 http://<内网 IP> 访问会「登录成功但下一个请求又是未登录」且不报错，
+      # 生产必须走 HTTPS。
+      cookie:
+        name: __Host-SESSION
+        secure: true
+        http-only: true
+        path: /
+        same-site: lax
+
+logging:
+  level:
+    com.xyzensun.emailcopilot: DEBUG

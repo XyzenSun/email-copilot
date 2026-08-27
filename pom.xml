@@ -1,0 +1,231 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-parent</artifactId>
+    <version>4.1.0</version>
+    <relativePath/>
+  </parent>
+
+  <groupId>com.xyzensun</groupId>
+  <artifactId>email-copilot</artifactId>
+  <version>0.1.0-SNAPSHOT</version>
+  <name>email-copilot</name>
+  <description>单用户多邮箱聚合 AI 邮件助手</description>
+
+  <properties>
+    <java.version>25</java.version>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <!-- 版本锁定理由见 ARCHITECTURE.md §8.4 与两份 ADR -->
+    <spring-ai.version>2.0.0</spring-ai.version>
+    <mybatis-plus.version>3.5.17</mybatis-plus.version>
+    <lucene.version>10.5.1</lucene.version>
+    <commons-net.version>3.13.0</commons-net.version>
+    <mime4j.version>0.8.14</mime4j.version>
+    <jdkim.version>0.5</jdkim.version>
+  </properties>
+
+  <dependencyManagement>
+    <dependencies>
+      <dependency>
+        <groupId>org.springframework.ai</groupId>
+        <artifactId>spring-ai-bom</artifactId>
+        <version>${spring-ai.version}</version>
+        <type>pom</type>
+        <scope>import</scope>
+      </dependency>
+    </dependencies>
+  </dependencyManagement>
+
+  <dependencies>
+    <!-- ── Web / 安全 / 校验 ───────────────────────────────── -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-web</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-security</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-validation</artifactId>
+    </dependency>
+
+    <!-- ── 持久化：MyBatis-Plus boot4 starter + PostgreSQL + Flyway ── -->
+    <dependency>
+      <groupId>com.baomidou</groupId>
+      <artifactId>mybatis-plus-spring-boot4-starter</artifactId>
+      <version>${mybatis-plus.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>org.postgresql</groupId>
+      <artifactId>postgresql</artifactId>
+      <scope>runtime</scope>
+    </dependency>
+    <!-- Spring Boot 4 把自动配置拆成了独立模块：只加 flyway-core 的话
+         FlywayAutoConfiguration 根本不在 classpath 里，migration 会被静默跳过
+         （启动成功、日志无一行 flyway、库里零张表）。spring-boot-flyway 必须显式加。 -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-flyway</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.flywaydb</groupId>
+      <artifactId>flyway-core</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.flywaydb</groupId>
+      <artifactId>flyway-database-postgresql</artifactId>
+    </dependency>
+
+    <!-- ── AI：两个 provider 都装，运行期由 ChatModelHolder 选（ARCHITECTURE.md §8.5）──
+         注意不是自动装配单例——provider/端点/型号/超时/key 五项全部热改，
+         所以只用这两个 starter 带进来的 Api/ChatModel builder，不用它们的 @ConditionalOn 装配结果。 -->
+    <dependency>
+      <groupId>org.springframework.ai</groupId>
+      <artifactId>spring-ai-starter-model-openai</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.ai</groupId>
+      <artifactId>spring-ai-starter-model-anthropic</artifactId>
+    </dependency>
+
+    <!-- ── 阶段 7：Exa MCP 只读搜索工具（Streamable HTTP）── -->
+    <!-- BOM 已管理版本。Starter 引入 spring-ai-mcp、autoconfigure-mcp-client-common、
+         autoconfigure-mcp-client-httpclient 及 MCP SDK 传递依赖。
+         MCP 工具不自动注册到 ChatClient，由对话 Agent bean 显式 .defaultTools(...) 注入。 -->
+    <dependency>
+      <groupId>org.springframework.ai</groupId>
+      <artifactId>spring-ai-starter-mcp-client</artifactId>
+    </dependency>
+
+    <!-- ── 邮件：IMAP 收信 + SMTP 发信（jakarta.mail 由 Boot 管理版本）── -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-mail</artifactId>
+    </dependency>
+    <!-- Boot 把 Angus 实现以 runtime 引入；阶段 4A 需要编译期使用 IMAPFolder 的
+         SPECIAL-USE attributes 与 IMAPMessage 的显式 peek 原始流，因此直接声明同一 BOM 版本。 -->
+    <dependency>
+      <groupId>org.eclipse.angus</groupId>
+      <artifactId>angus-mail</artifactId>
+    </dependency>
+    <!-- HTML-only 邮件只离线转换为纯文本；jsoup 不加载外部资源，防止正文中的链接触发网络访问。 -->
+    <dependency>
+      <groupId>org.jsoup</groupId>
+      <artifactId>jsoup</artifactId>
+      <version>1.20.1</version>
+    </dependency>
+    <!-- MIME 解析：Webhook 投递的是完整原始 RFC 5322 邮件，须流式解析且限制大小 -->
+    <dependency>
+      <groupId>org.apache.james</groupId>
+      <artifactId>apache-mime4j-core</artifactId>
+      <version>${mime4j.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.james</groupId>
+      <artifactId>apache-mime4j-dom</artifactId>
+      <version>${mime4j.version}</version>
+    </dependency>
+    <!-- DKIM 自行校验：发件人规则匹配的是已认证域名，不是 From 字面值（CONTEXT.md 发件人认证）-->
+    <dependency>
+      <groupId>org.apache.james.jdkim</groupId>
+      <artifactId>apache-jdkim-library</artifactId>
+      <version>${jdkim.version}</version>
+    </dependency>
+
+    <!-- ── 会话归并：JWZ threading（ADR-0001）── -->
+    <dependency>
+      <groupId>commons-net</groupId>
+      <artifactId>commons-net</artifactId>
+      <version>${commons-net.version}</version>
+    </dependency>
+
+    <!-- ── 检索：Embedded Lucene，BM25 相关度（ADR-0002 定 smartcn）── -->
+    <dependency>
+      <groupId>org.apache.lucene</groupId>
+      <artifactId>lucene-core</artifactId>
+      <version>${lucene.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.lucene</groupId>
+      <artifactId>lucene-analysis-common</artifactId>
+      <version>${lucene.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.lucene</groupId>
+      <artifactId>lucene-analysis-smartcn</artifactId>
+      <version>${lucene.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.lucene</groupId>
+      <artifactId>lucene-queryparser</artifactId>
+      <version>${lucene.version}</version>
+    </dependency>
+
+    <!-- ── 编译期工具 ───────────────────────────────────────── -->
+    <!-- 版本由 spring-boot-starter-parent 4.1.0 管理（1.18.46，支持 JDK 25），
+         不在此处指定。只用于消除 20 个 MyBatis-Plus 实体的 getter/setter 样板；
+         带凭据或邮件正文的字段必须标 @ToString.Exclude——@Data 的 toString()
+         会把所有字段塞进去，而凭据不得进日志（ARCHITECTURE.md §7.2）。 -->
+    <dependency>
+      <groupId>org.projectlombok</groupId>
+      <artifactId>lombok</artifactId>
+      <optional>true</optional>
+    </dependency>
+
+    <!-- ── 测试 ─────────────────────────────────────────────── -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-test</artifactId>
+      <scope>test</scope>
+      <exclusions>
+        <!-- 项目测试政策禁止测试替身库；所有集成测试使用真实服务。 -->
+        <exclusion>
+          <groupId>org.mockito</groupId>
+          <artifactId>mockito-core</artifactId>
+        </exclusion>
+        <exclusion>
+          <groupId>org.mockito</groupId>
+          <artifactId>mockito-junit-jupiter</artifactId>
+        </exclusion>
+      </exclusions>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.security</groupId>
+      <artifactId>spring-security-test</artifactId>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-compiler-plugin</artifactId>
+        <configuration>
+          <!-- JDK 23 起 javac 不再自动运行 classpath 上的注解处理器（JDK-8306819），
+               只把 lombok 放进 dependencies 会【编译成功但一个方法都不生成】——
+               错得很静默，要靠 javap 看字节码才发现。必须显式声明处理器路径。
+               版本由 spring-boot-starter-parent 的 ${lombok.version} 提供。 -->
+          <annotationProcessorPaths>
+            <path>
+              <groupId>org.projectlombok</groupId>
+              <artifactId>lombok</artifactId>
+              <version>${lombok.version}</version>
+            </path>
+          </annotationProcessorPaths>
+        </configuration>
+      </plugin>
+      <plugin>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-maven-plugin</artifactId>
+      </plugin>
+    </plugins>
+  </build>
+</project>
