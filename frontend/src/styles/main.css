@@ -1,0 +1,142 @@
+/*
+ * 样式系统入口（Tailwind v4 CSS-first）。
+ *
+ * 色板与视觉照 design/mail_management_workspace_design.html 的「北欧极简（hygge）」原型：
+ * 暖白底、砂色边框、克制阴影、serif 标题点缀、sage 绿作唯一彩色强调。
+ * 分类色（primary/transaction/.../spam）不在这里铺 token，由 Chip 组件内的
+ * CAT_STYLE 映射对象集中管理，照原型做法。
+ */
+@import 'tailwindcss';
+
+/* ────────────────────────────────────────────────────────────
+ * 设计 token：nordic 色板 + 文字梯度 + 边框 + 字体
+ * 命名用 kebab-case，生成 bg-warm-white / text-deep-charcoal 等工具类。
+ * ──────────────────────────────────────────────────────────── */
+@theme {
+  /* 主色板（原型 nordic palette） */
+  --color-warm-white: #fafaf9; /* 主背景 */
+  --color-light-beige: #f5f5f4; /* 次背景 / 面板 / 按钮底 */
+  --color-sand: #e7e5e4; /* 主边框 / 分割线 */
+  --color-stone-grey: #57534e; /* 次文字 / 次按钮文字 */
+  --color-dark-stone: #44403c; /* 主文字 / 主按钮底 / 图标方块底 */
+  --color-deep-charcoal: #292524; /* 标题 / 品牌名 / 强调 */
+  --color-warm-accent: #d97706; /* AI 火花强调 */
+  --color-sage: #78866b; /* 选中竖条 / 成功 / DKIM / 批准按钮 */
+  --color-clay: #b45309; /* 待审批 / 警告 / 角标 */
+
+  /* 文字梯度（深→淡） */
+  --color-ink-900: #292524;
+  --color-ink-800: #44403c;
+  --color-ink-700: #57534e;
+  --color-ink-500: #78716c;
+  --color-ink-400: #8c857b;
+  --color-ink-300: #a8a29e;
+
+  /* 边框梯度 */
+  --color-border: #e7e5e4; /* 主边框 */
+  --color-border-soft: #f5f5f4; /* 内层细分隔线 */
+  --color-border-strong: #d6d3d1; /* checkbox / 滚动条 */
+
+  /* 状态色背景块（警告/危险，原型用复合色） */
+  --color-warn-bg: #fef3c7;
+  --color-warn-border: #fde68a;
+  --color-warn-text: #92400e;
+  --color-danger-bg: #fee2e2;
+  --color-danger-border: #fca5a5;
+  --color-danger-text: #991b1b;
+
+  /* 字体族（index.html 已 link Google Fonts） */
+  --font-sans: 'Plus Jakarta Sans', system-ui, sans-serif;
+  --font-serif: 'Noto Serif SC', serif;
+  --font-mono: 'JetBrains Mono', monospace;
+
+  /* 圆角（对齐原型：胶囊 / 2xl=16px / xl=12px / lg=8px / 3xl=24px） */
+  --radius-2xl: 1rem;
+  --radius-3xl: 1.5rem;
+}
+
+/* ────────────────────────────────────────────────────────────
+ * 原型 4 个自定义 class（hygge-card / hygge-panel / hygge-input / list-pick）
+ * ──────────────────────────────────────────────────────────── */
+@layer components {
+  /* 卡片：极淡阴影，克制不抢内容 */
+  .hygge-card {
+    box-shadow: 0 2px 12px -2px rgba(68, 64, 60, 0.04);
+  }
+
+  /* 顶栏/面板：毛玻璃 */
+  .hygge-panel {
+    backdrop-filter: blur(12px);
+  }
+
+  /* 输入框：砂色边框 + focus 时 stone 环，无 outline */
+  .hygge-input {
+    background-color: #fff;
+    border: 1px solid var(--color-border);
+    color: var(--color-dark-stone);
+    border-radius: var(--radius-2xl);
+    transition: all 0.2s;
+  }
+  .hygge-input:focus {
+    border-color: var(--color-stone-grey);
+    box-shadow: 0 0 0 3px rgba(87, 83, 78, 0.08);
+    outline: none;
+  }
+  .hygge-input::placeholder {
+    color: var(--color-ink-300);
+  }
+
+  /* 列表选中态：左侧 3px sage 竖条 */
+  .list-pick {
+    position: relative;
+  }
+  .list-pick::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 10px;
+    bottom: 10px;
+    width: 3px;
+    border-radius: 3px;
+    background-color: var(--color-sage);
+  }
+}
+
+/* ────────────────────────────────────────────────────────────
+ * 全局基础
+ * ──────────────────────────────────────────────────────────── */
+html,
+body,
+#app {
+  height: 100%;
+}
+
+body {
+  font-family: var(--font-sans);
+}
+
+/* 选中态配色（对齐原型） */
+::selection {
+  background-color: var(--color-sand);
+  color: var(--color-deep-charcoal);
+}
+
+/* 自定义滚动条（对齐原型：5px 宽，stone thumb） */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-border-strong) var(--color-warm-white);
+}
+*::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+*::-webkit-scrollbar-track {
+  background: var(--color-warm-white);
+}
+*::-webkit-scrollbar-thumb {
+  background-color: var(--color-border-strong);
+  border-radius: 10px;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background-color: var(--color-ink-300);
+}
