@@ -20,8 +20,6 @@ services:
       # JVM 参数：默认 256m 堆，重度使用可调大
       JAVA_OPTS: ${JAVA_OPTS:--Xmx256m}
     volumes:
-      # Lucene 索引持久化
-      - email-copilot-data:/app/data
-
-volumes:
-  email-copilot-data:
+      # Lucene 索引数据目录，用宿主绑定挂载。容器内以 UID 10001(appuser) 运行，
+      # 首次部署前需让宿主目录可写：mkdir -p ./data && sudo chown -R 10001:10001 ./data
+      - ./data:/app/data
