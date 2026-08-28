@@ -25,6 +25,35 @@ npm install
 npm run dev
 ```
 
+### Docker
+
+官方镜像在 GHCR，启动前必须配置数据库口令与加密主密钥：
+
+```bash
+docker run -d --name email-copilot -p 8080:8080 \
+  -e DB_PASSWORD='数据库口令' \
+  -e EMAIL_COPILOT_MASTER_KEY="$(openssl rand -base64 32)" \
+  -v email-copilot-data:/app/data \
+  ghcr.io/xyzensun/email-copilot:latest
+```
+
+- `DB_PASSWORD`：PostgreSQL 口令。库地址/账号用容器参数覆盖，例如
+  `--spring.datasource.url=jdbc:postgresql://db:5432/email_agent --spring.datasource.username=postgres`。
+- `EMAIL_COPILOT_MASTER_KEY`：凭据加密主密钥，`openssl rand -base64 32` 生成。**首次启动前设置并妥善保存**，
+  更换后既有凭据将无法解密。
+- `:latest` 之外可按发行版本拉取 `:0.2.0`（对应 git tag `v0.2.0` 去掉前导 `v`）；`/app/data` 是 Lucene 索引目录，建议挂载持久化。
+
+镜像名由 `github.repository` 全小写拼出（GHCR 要求全小写），fork 后自动跟随 fork 的用户名/仓库名，无需改配置；
+也可直接 `docker build -t email-copilot .` 构建本地自足镜像（多阶段构建已内嵌前端）。
+
+## 发布
+
+打 git tag（`v` 开头，如 `v0.2.0`）并推送后，在 GitHub 仓库 Actions 页手动运行 `Release` 工作流，
+ref 选择该 tag。工作流会自动：
+
+1. 编译后端可执行 jar（内嵌前端资源）与前端静态文件，附到该 tag 的 GitHub Release。
+2. 构建 Docker 镜像并推送 GHCR（版本号取 tag，去掉前导 `v`）。
+
 ## 许可证
 
 MIT
