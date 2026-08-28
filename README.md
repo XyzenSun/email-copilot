@@ -33,7 +33,7 @@ npm run dev
 docker run -d --name email-copilot -p 8080:8080 \
   -e DB_PASSWORD='数据库口令' \
   -e EMAIL_COPILOT_MASTER_KEY="$(openssl rand -base64 32)" \
-  -v email-copilot-data:/app/data \
+  -v ./data:/app/data \
   ghcr.io/xyzensun/email-copilot:latest
 ```
 
@@ -43,7 +43,13 @@ docker run -d --name email-copilot -p 8080:8080 \
   更换后既有凭据将无法解密。
 - `JAVA_OPTS`：JVM 启动参数，默认 `-Xmx256m`。单机空闲进程约 330MB 内存，实测 256m 堆可完整启动且无 OOM；
   重度使用（大量 AI 会话/超大邮件/索引重建）可调大，如 `-e JAVA_OPTS="-Xmx512m"`。
-- `:latest` 之外可按发行版本拉取 `:0.2.0`（对应 git tag `v0.2.0` 去掉前导 `v`）；`/app/data` 是 Lucene 索引目录，建议挂载持久化。
+- **数据目录权限（Lucene 索引）**：`/app/data` 以宿主绑定挂载 `./data`；容器内进程是 UID 10001（非 root），
+  首次部署必须先让宿主目录可写：
+  ```bash
+  mkdir -p ./data && sudo chown -R 10001:10001 ./data
+  ```
+  跳过授权会报 `AccessDeniedException: /app/data/lucene`，表现为搜索不可用（收信与数据库不受影响）。
+- `:latest` 之外可按发行版本拉取 `:0.2.0`（对应 git tag `v0.2.0` 去掉前导 `v`）。
 
 或用 compose 一键起服务（默认对接远程 PostgreSQL，如 Aiven）：
 
@@ -51,6 +57,8 @@ docker run -d --name email-copilot -p 8080:8080 \
 cp .env.example .env   # 填入 DB_URL/DB_USERNAME/DB_PASSWORD
 docker compose up -d
 ```
+
+（compose 同样需要先把 `./data` 授权给 UID 10001，见上面的权限说明。）
 
 镜像名由 `github.repository` 全小写拼出（GHCR 要求全小写），fork 后自动跟随 fork 的用户名/仓库名，无需改配置；
 也可直接 `docker build -t email-copilot .` 构建本地自足镜像（多阶段构建已内嵌前端）。运行镜像基于 Alpine JRE（musl），
