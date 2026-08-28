@@ -26,14 +26,19 @@ COPY --from=frontend /build/src/main/resources/static ./src/main/resources/stati
 RUN mvn -B -DskipTests package
 
 # ── 阶段 3：运行时 ───────────────────────────────────────────────
-FROM eclipse-temurin:25-jre
+# Alpine JRE（musl）：项目纯 Java、无 JNI 原生依赖，比 Ubuntu 版约省 40MB。
+# 堆默认 256m（实测完整启动 + 空闲无 OOM，进程 ~330MB）；余量不足时用
+# -e JAVA_OPTS="-Xmx512m ..." 覆盖即可，Spring 参数追加在镜像名之后。
+FROM eclipse-temurin:25-jre-alpine
 WORKDIR /app
 COPY --from=backend /build/target/*.jar ./app.jar
 # Lucene 索引默认写工作目录下 data/lucene（SearchIndexProperties）。以非 root
-# 用户运行；预先建好 /app/data 并把 /app 全部属主设为该用户——否则命名卷首次
+# 用户运行；预先建好 /app/data 并把 /app 属主设为该用户——否则命名卷首次
 # 挂载 /app/data 时由 root 初始化卷根目录，UID 10001 将无权写入索引
-RUN useradd -r -u 10001 -d /app -s /sbin/nologin appuser && mkdir -p /app/data && chown -R 10001:10001 /app
+RUN addgroup -g 10001 -S appuser && adduser -S -u 10001 -G appuser -h /app -s /bin/false appuser \
+    && mkdir -p /app/data && chown -R 10001:10001 /app
 USER 10001
+ENV JAVA_OPTS="-Xmx256m"
 EXPOSE 8080
-# 追加运行参数（如 --server.port=8081）直接放在镜像名之后即可传给 java -jar
-ENTRYPOINT ["java", "-jar", "/app/app.jar"]
+# JAVA_OPTS 经 sh 展开以支持用户覆盖；"--" 之后的参数透传给 java（docker run 追加在镜像名后）
+ENTRYPOINT ["sh", "-c", "exec java $JAVA_OPTS -jar /app/app.jar \"$@\"", "--"]
