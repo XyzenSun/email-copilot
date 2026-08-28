@@ -1,0 +1,27 @@
+# email-copilot 单机自托管示例：后端容器 + 远程 PostgreSQL（Aiven 等）。
+# 用法：cp .env.example .env，填入 DB_URL/DB_USERNAME/DB_PASSWORD/mailer key 后：
+#   docker compose up -d
+# 数据库在远端，compose 不内置 postgres 服务；镜像需先经 Release 工作流发布（ghcr.io）。
+
+services:
+  email-copilot:
+    image: ghcr.io/xyzensun/email-copilot:${APP_VERSION:-latest}
+    container_name: email-copilot
+    restart: unless-stopped
+    ports:
+      - "${APP_PORT:-8080}:8080"
+    environment:
+      # 覆盖 application.yml 默认的 localhost 数据源；远程 PG 必须保留 sslmode=require
+      SPRING_DATASOURCE_URL: ${DB_URL:?请在 .env 中配置 DB_URL（含 ?sslmode=require）}
+      SPRING_DATASOURCE_USERNAME: ${DB_USERNAME:?请在 .env 中配置 DB_USERNAME}
+      SPRING_DATASOURCE_PASSWORD: ${DB_PASSWORD:?请在 .env 中配置 DB_PASSWORD}
+      # 凭据加密主密钥：新库可留空，但建议首次启动前设置并妥善保存（换库密文将无法解密）
+      EMAIL_COPILOT_MASTER_KEY: ${MASTER_KEY:-}
+      # JVM 参数：默认 256m 堆，重度使用可调大
+      JAVA_OPTS: ${JAVA_OPTS:--Xmx256m}
+    volumes:
+      # Lucene 索引持久化
+      - email-copilot-data:/app/data
+
+volumes:
+  email-copilot-data:

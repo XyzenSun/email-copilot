@@ -45,6 +45,13 @@ docker run -d --name email-copilot -p 8080:8080 \
   重度使用（大量 AI 会话/超大邮件/索引重建）可调大，如 `-e JAVA_OPTS="-Xmx512m"`。
 - `:latest` 之外可按发行版本拉取 `:0.2.0`（对应 git tag `v0.2.0` 去掉前导 `v`）；`/app/data` 是 Lucene 索引目录，建议挂载持久化。
 
+或用 compose 一键起服务（默认对接远程 PostgreSQL，如 Aiven）：
+
+```bash
+cp .env.example .env   # 填入 DB_URL/DB_USERNAME/DB_PASSWORD
+docker compose up -d
+```
+
 镜像名由 `github.repository` 全小写拼出（GHCR 要求全小写），fork 后自动跟随 fork 的用户名/仓库名，无需改配置；
 也可直接 `docker build -t email-copilot .` 构建本地自足镜像（多阶段构建已内嵌前端）。运行镜像基于 Alpine JRE（musl），
 项目纯 Java 无原生依赖，体积比 Ubuntu 版约省 40MB。
