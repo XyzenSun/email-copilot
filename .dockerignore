@@ -1,0 +1,13 @@
+# 构建产物与本地缓存：不进 docker 构建上下文
+target/
+node_modules/
+dist/
+src/main/resources/static/
+data/
+
+# 元数据：镜像用不到
+.git/
+.gitignore
+.github/
+README.md
+LICENSE

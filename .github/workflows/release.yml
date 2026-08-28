@@ -1,0 +1,115 @@
+name: Release
+
+# 发布只走手动触发：先打 v 开头 tag 并推送，再到 Actions 页 Run workflow，
+# 在 ref 下拉框选中该 tag。版本号从 tag 自动取（去掉前导 v）。
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write   # 创建 GitHub Release
+  packages: write   # 推送 GHCR 镜像
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      # 需要完整 tag 历史：分支上手动运行时用最新 tag 兜底取版本号
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '25'
+          cache: maven
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      # 解析发布版本：
+      #  - 优先：当前 ref 是 tag（workflow_dispatch 的 ref 下拉框选中 tag）
+      #  - 兜底：分支运行，取当前 ref 可达的最近一个 tag
+      # ref 上下文经 env 传入 shell，避免把 ref 名直接内插进脚本
+      - name: 解析发布版本（来自 tag）
+        id: version
+        env:
+          SESSION_REF_TYPE: ${{ github.ref_type }}
+          SESSION_REF_NAME: ${{ github.ref_name }}
+        run: |
+          if [ "$SESSION_REF_TYPE" = "tag" ]; then
+            TAG="$SESSION_REF_NAME"
+          else
+            TAG="$(git describe --tags --abbrev=0 2>/dev/null || true)"
+          fi
+          [ -n "$TAG" ] || { echo "::error::${{ github.repository }} 当前 ref 下找不到可达 tag，无法解析版本号"; exit 1; }
+          version="${TAG#v}"
+          [ -n "$version" ] || { echo "::error::tag 名必须以 v 开头且后跟版本号，如 v0.2.0"; exit 1; }
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          # GHCR 要求镜像名全小写：GITHUB_REPOSITORY 即 github.repository（owner/repo），
+          # bash 参数展开转小写，不写死账号名，fork 后自动跟随 fork 的用户名/仓库名。
+          echo "image_ref=${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+
+      # vite.config.ts 的 build.outDir 指向 ../src/main/resources/static，
+      # 产物落入后端 static 目录，随 jar 同源部署
+      - name: 构建前端
+        run: |
+          cd frontend
+          npm ci --no-audit --no-fund
+          npm run build
+
+      - name: 打包前端产物为 Release 资产
+        run: |
+          cd src/main/resources/static
+          zip -r "${GITHUB_WORKSPACE}/email-copilot-frontend-${{ steps.version.outputs.version }}.zip" . -x ".*"
+
+      - name: 构建后端 jar
+        run: mvn -B -DskipTests package
+
+      # pom 版本固定 0.1.0-SNAPSHOT，发布资产按 tag 版本重命名，避免改 pom 引入版本管理复杂度；
+      # find 定向匹配主 jar（spring-boot-repackage 还会在 target 留下 *.jar.original）
+      - name: 按 tag 版本重命名 jar
+        run: |
+          jar="$(find target -maxdepth 1 -name '*.jar' ! -name '*.original' -print -quit)"
+          mv "$jar" "target/email-copilot-${{ steps.version.outputs.version }}.jar"
+          ls -lh target/*.jar
+
+      - uses: docker/setup-buildx-action@v4
+
+      - name: 登录 GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Docker 镜像先行：release body 引用了镜像地址，必须等推送成功后再发布 Release
+      - name: 构建并推送 Docker 镜像
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          push: true
+          tags: |
+            ghcr.io/${{ steps.version.outputs.image_ref }}:latest
+            ghcr.io/${{ steps.version.outputs.image_ref }}:${{ steps.version.outputs.version }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: 创建 GitHub Release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: email-copilot ${{ steps.version.outputs.version }}
+          body: |
+            本轮发布内容见 git 记录；构建产物：
+            - 后端可执行 jar（内嵌前端）：`email-copilot-${{ steps.version.outputs.version }}.jar`
+            - 前端静态资源：`email-copilot-frontend-${{ steps.version.outputs.version }}.zip`
+            - Docker 镜像：`ghcr.io/${{ steps.version.outputs.image_ref }}:${{ steps.version.outputs.version }}`
+          files: |
+            target/email-copilot-${{ steps.version.outputs.version }}.jar
+            email-copilot-frontend-${{ steps.version.outputs.version }}.zip
+          update_release: true
